@@ -99,6 +99,26 @@
   .help-list{text-align:left;font-size:13px;line-height:2;color:#c6cef2}
   .help-list b{color:var(--green)} .help-list .red{color:var(--red)}
   #err{display:none;position:fixed;left:8px;bottom:8px;right:8px;color:var(--red);font-size:12px;z-index:99;word-break:break-all;white-space:pre-wrap}
+
+  /* ===== 关卡工坊 ===== */
+  .card.wide{width:min(430px,94vw)}
+  .ed-row{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:6px 0}
+  .ed-size{border:none;cursor:pointer;padding:8px 14px;border-radius:10px;background:var(--panel);color:var(--text);
+    font-size:14px;font-weight:800;border:1px solid rgba(255,255,255,.12)}
+  .ed-size.on{background:var(--green);color:#06310f;border-color:var(--green)}
+  .ed-tool{width:44px;height:44px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:var(--panel);
+    color:var(--text);font-size:17px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .ed-tool.on{background:var(--amber);color:#3d2a00;border-color:var(--amber)}
+  .ed-tool.blank{color:#9fb0d4}
+  #editGrid{display:grid;gap:4px;margin:10px auto;width:min(300px,88vw);touch-action:manipulation}
+  .ed-cell{aspect-ratio:1;border-radius:6px;background:#1a2350;border:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;cursor:pointer;color:#eaf2ff}
+  .ed-cell.arrow{background:linear-gradient(180deg,#2fce6e,#239a52);color:#0c2b16}
+  .ed-cell.blank{background:linear-gradient(180deg,#6f81ab,#54648c);color:#dde6ff}
+  #editBadge{font-size:13px;font-weight:700;margin:4px 0}
+  #editBadge.ok{color:var(--green)} #editBadge.warn{color:var(--amber)}
+  #layerRow{font-size:13px;color:var(--muted)}
+  #layerRow input{vertical-align:middle;width:110px;margin:0 6px;accent-color:var(--green)}
   @media (max-height:640px){.pu{width:52px;height:52px}.card{padding:18px}}
 </style>
 </head>
@@ -144,6 +164,7 @@
     <div class="mode-card" data-mode="classic"><div class="ic">🧩</div><div><div class="t">经典闯关</div><div class="d">步数有限 · 星级评价</div></div><div class="stat" id="statClassic"></div></div>
     <div class="mode-card" data-mode="timed"><div class="ic">⏱️</div><div><div class="t">限时挑战</div><div class="d">60 秒 · 冲刺高分</div></div><div class="stat" id="statTimed"></div></div>
     <div class="mode-card" data-mode="endless"><div class="ic">♾️</div><div><div class="t">无尽模式</div><div class="d">无限制 · 放松解压</div></div><div class="stat" id="statEndless"></div></div>
+    <div class="mode-card" data-edit="1"><div class="ic">✏️</div><div><div class="t">关卡工坊</div><div class="d">设计自己的方块塔 · 分享给朋友</div></div><div class="stat" id="statCustom"></div></div>
     <div class="btn-row"><button class="btn ghost" data-close="1">关闭</button></div>
   </div>
 </div>
@@ -162,6 +183,7 @@
   <div class="card">
     <h2>设置</h2>
     <div class="set-row"><span>🔊 音效</span><button class="switch on" id="swSound"></button></div>
+    <div class="set-row"><span>🎵 背景音乐</span><button class="switch on" id="swBgm"></button></div>
     <div class="set-row"><span>📳 震动</span><button class="switch on" id="swHaptic"></button></div>
     <div class="set-row"><span>❓ 玩法说明</span><button class="btn ghost" id="btnHelp" style="padding:6px 14px;font-size:13px">查看</button></div>
     <div class="set-row"><span>🗑️ 重置进度</span><button class="btn danger" id="btnReset" style="padding:6px 14px;font-size:13px">重置</button></div>
@@ -178,9 +200,31 @@
       <div>🚫 路径被挡的方块<b>无法滑出</b>（经典模式扣步数！）</div>
       <div>⬜ <b>灰色方块</b>无箭头，用 💣炸弹 或 ⇄交换 处理</div>
       <div>⟳ 刷新 = 重新排列箭头 · 💡 提示 = 标出可消除方块</div>
+      <div>⚡ 连续消除触发<b>连击</b>，分数翻倍！</div>
       <div class="red">清空所有方块过关！只能从外往内消，考验空间规划 🔮</div>
     </div>
     <div class="btn-row"><button class="btn primary" data-close="1">开始游戏</button></div>
+  </div>
+</div>
+
+<!-- 关卡工坊 -->
+<div class="overlay" id="ovEdit">
+  <div class="card wide">
+    <h2>✏️ 关卡工坊</h2>
+    <div class="sub">逐层设计你的方块塔（y 轴从下往上）</div>
+    <div class="ed-row" id="sizeRow"></div>
+    <div id="layerRow">层 <input type="range" id="layerSlider" min="0" max="0" value="0"> <span id="layerLbl">0/0</span></div>
+    <div class="ed-row" id="toolRow"></div>
+    <div id="editGrid"></div>
+    <div id="editBadge"></div>
+    <div class="ed-row">
+      <button class="btn ghost" id="edRandom" style="padding:8px 14px;font-size:13px">🎲 随机生成</button>
+      <button class="btn ghost" id="edClear" style="padding:8px 14px;font-size:13px">🧹 清空</button>
+      <button class="btn primary" id="edPlay" style="padding:8px 14px;font-size:13px">▶️ 试玩</button>
+      <button class="btn ghost" id="edShare" style="padding:8px 14px;font-size:13px">🔗 分享</button>
+    </div>
+    <div class="sub" style="margin-top:8px" id="customList"></div>
+    <div class="btn-row"><button class="btn ghost" data-close="1">关闭</button></div>
   </div>
 </div>
 
@@ -1405,7 +1449,7 @@ const $=id=>document.getElementById(id);
 const D=document;
 
 const DB_KEY='arrowClear3dV1';
-const defDB={sound:true,haptic:true,help:false,classic:{level:1,stars:0},timed:{best:0},endless:{level:1,score:0}};
+const defDB={sound:true,bgm:true,haptic:true,help:false,classic:{level:1,stars:0},timed:{best:0},endless:{level:1,score:0},customs:[]};
 function loadDB(){try{const raw=localStorage.getItem(DB_KEY);if(raw)return Object.assign({},defDB,JSON.parse(raw));}catch(e){}return JSON.parse(JSON.stringify(defDB))}
 let DB=loadDB();
 function saveDB(){try{localStorage.setItem(DB_KEY,JSON.stringify(DB))}catch(e){}}
@@ -1420,6 +1464,7 @@ const G={
   instOf:new Map(),posOf:[],
   slides:[],shakes:[],hints:[],fx:[],
   hoverId:-1,
+  combo:0,lastRemove:0,
 };
 
 /* ---------- 音效（同 2D） ---------- */
@@ -1447,6 +1492,39 @@ function sfxSwap(){beep(440,.07,'sine',.14);setTimeout(()=>beep(550,.07,'sine',.
 function sfxWin(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.16,'triangle',.2),i*110))}
 function sfxLose(){[400,320,240,180].forEach((f,i)=>setTimeout(()=>beep(f,.2,'sawtooth',.1),i*130))}
 function vibrate(p){if(DB.haptic&&navigator.vibrate){try{navigator.vibrate(p)}catch(e){}}}
+
+/* ---------- 背景音乐（WebAudio 合成循环，无外部资源） ---------- */
+let bgmTimer=null,bgmStep=0,bgmNext=0;
+const BGM_CHORDS=[[130.81,261.63,329.63,392.0],[110.0,220.0,261.63,329.63],[87.31,174.61,220.0,261.63],[98.0,196.0,246.94,293.66]];
+function bgmNote(freq,t,dur,type,vol){
+  const ctx=ac();if(!ctx)return;
+  const o=ctx.createOscillator(),g=ctx.createGain();
+  o.type=type;o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol,t+.025);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+dur+.05);
+}
+function scheduleBGM(step,t){
+  const ci=Math.floor(step/16)%4;
+  if(step%16===0)bgmNote(BGM_CHORDS[ci][0]/2,t,.9,'sine',.055);          // 低音
+  if(step%4===0)bgmNote(BGM_CHORDS[ci][1+(step/4|0)%3]*2,t+.01,.32,'triangle',.035); // 琶音
+  if(step%16===12)bgmNote(BGM_CHORDS[(ci+1)%4][1]*2,t+.01,.3,'triangle',.028);       // 色彩音
+  if(step%64===60)bgmNote(BGM_CHORDS[0][1]*4,t+.01,.5,'sine',.02);                    // 高音点缀
+}
+function startBGM(){
+  stopBGM();
+  if(!DB.bgm)return;
+  const ctx=ac();if(!ctx)return;
+  bgmNext=ctx.currentTime+.1;bgmStep=0;
+  bgmTimer=setInterval(()=>{
+    const c=ac();if(!c)return;
+    while(bgmNext<c.currentTime+1.2){
+      scheduleBGM(bgmStep,bgmNext);bgmStep=(bgmStep+1)%64;bgmNext+=.25;
+    }
+  },200);
+}
+function stopBGM(){if(bgmTimer){clearInterval(bgmTimer);bgmTimer=null}}
 
 let toastTimer=null;
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');
@@ -1695,16 +1773,21 @@ function onCubeTap(x,y,z){
 function doRemove(x,y,z){
   const cell=G.board[x][y][z];
   G.board[x][y][z]=null;                 // 逻辑立即生效
-  G.movesUsed++;G.score+=10;
+  G.movesUsed++;
+  // 连击：1.8 秒内连续消除
+  const now=performance.now();
+  G.combo=(now-G.lastRemove<1800)?G.combo+1:1;
+  G.lastRemove=now;
+  const gained=10+(G.combo-1)*5;         // 连击倍率：+5/级
+  G.score+=gained;
   const d=DIRS3[cell.d];
   const dist=G.size;                     // 滑出整个塔身
   G.slides.push({x,y,z,d,dist,t:0,dur:.34,ease:true});
-  sfxPop();vibrate(12);
-  const idx=G.instOf.get(key3(x,y,z));
-  if(idx!==undefined){
-    const p=new THREE.Vector3(x,y,z);p.project(camera);
-    if(p.z<1)floatScore(new THREE.Vector3(x,y,z),'+10');
-  }
+  sfxPop();if(G.combo>1)setTimeout(()=>beep(620+G.combo*60,.09,'triangle',.15),40);
+  vibrate(12);
+  const p=new THREE.Vector3(x,y,z);
+  if(G.combo>1)floatScore(p,'×'+G.combo+'  +'+gained);
+  else floatScore(p,'+'+gained);
   updateHUD();
 }
 function doShake(x,y,z){
@@ -1881,6 +1964,8 @@ function animStep(dt){
     }
   }
   if(blocksMesh)blocksMesh.instanceMatrix.needsUpdate=true;
+  // 连击衰减
+  if(G.combo>0&&performance.now()-G.lastRemove>1800)G.combo=0;
 }
 
 /* ---------- 状态检查 ---------- */
@@ -1912,6 +1997,10 @@ function endGame(win,stuck){
       stars=G.timeLeft>30?3:(G.timeLeft>10?2:1);
       if(G.score>DB.timed.best)DB.timed.best=G.score;
       extra='用时 '+Math.round(G.timeMax-G.timeLeft)+' 秒';
+    }else if(G.mode==='custom'){
+      const spare=G.movesLimit-G.movesUsed;
+      stars=spare>=2?3:(spare>=1?2:1);
+      extra='自定义关卡 · 剩余 '+Math.max(0,spare)+' 步';
     }else{
       stars=G.score>=500?3:(G.score>=250?2:1);
       DB.endless.level++;DB.endless.score+=G.score;
@@ -1930,10 +2019,13 @@ function endGame(win,stuck){
   const mk=(txt,cls,fn)=>{const b=D.createElement('button');b.className='btn '+cls;b.textContent=txt;b.addEventListener('click',fn);btns.appendChild(b)};
   if(win){
     if(G.mode==='classic')mk('下一关','primary',()=>{ov.classList.remove('show');startLevel(DB.classic.level)});
+    else if(G.mode==='custom'){mk('再来一次','primary',()=>{ov.classList.remove('show');startLevel(0,G.customCode)});
+      mk('回工坊','ghost',()=>{ov.classList.remove('show');openEditor()})}
     else mk('再来一局','primary',()=>{ov.classList.remove('show');startLevel(G.level)});
     mk('切换模式','ghost',()=>{ov.classList.remove('show');openMode()});
   }else{
-    mk('重试本关','primary',()=>{ov.classList.remove('show');startLevel(G.level)});
+    if(G.mode==='custom')mk('重试本关','primary',()=>{ov.classList.remove('show');startLevel(0,G.customCode)});
+    else mk('重试本关','primary',()=>{ov.classList.remove('show');startLevel(G.level)});
     mk('切换模式','ghost',()=>{ov.classList.remove('show');openMode()});
   }
   ov.classList.add('show');
@@ -1957,29 +2049,6 @@ function modeConf(mode,level){
   const blanks=level>=2?8:0;
   return{size,fill,blanks,bombs:2,swaps:1,refresh:1,hint:2};
 }
-function startLevel(level){
-  G.level=level;
-  const cfg=modeConf(G.mode,level);
-  G.size=cfg.size;
-  G.board=genLevelUsable3(G.size,cfg.fill,cfg.blanks,(Math.random()*1e9)|0,20);
-  if(!G.board){toast('关卡生成失败，重试…');G.board=genLevelUsable3(G.size,.45,0,(Math.random()*1e9)|0,40)}
-  const total=countBlocks3(G.board,G.size),blanks=countBlanks3(G.board,G.size);
-  G.pu={refresh:cfg.refresh,swap:cfg.swaps,bomb:cfg.bombs,hint:cfg.hint};
-  G.movesUsed=0;
-  G.movesLimit=G.mode==='classic'?(total-blanks)+3:9999;
-  G.score=G.mode==='endless'?DB.endless.score:0;
-  G.timeMax=G.mode==='timed'?60:0;G.timeLeft=60;
-  G.elapsed=0;
-  G.tool=null;G.selA=null;G.busy=false;
-  G.slides=[];G.shakes=[];G.hints=[];G.fx=[];G.hoverId=-1;
-  $('titleLv').textContent=G.mode==='endless'?('无尽 '+level):('第 '+level+' 关');
-  buildInstances();
-  fitCamera();
-  updateHUD();refreshBadges();
-  if(G.timerId){clearInterval(G.timerId);G.timerId=null}
-  if(G.mode==='timed')startTimer('count');
-  else if(G.mode==='classic')startTimer('elapsed');
-}
 function startTimer(kind){
   G.timerId=setInterval(()=>{
     if(kind==='elapsed'){G.elapsed++;updateHUD();return}
@@ -1995,7 +2064,7 @@ function fmtTime(s){return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
 function updateHUD(){
   $('hudLeft').textContent=countBlocks3(G.board,G.size);
   const mv=$('hudMoves');
-  if(G.mode==='classic'){mv.style.display='';mv.textContent=G.movesUsed+'/'+G.movesLimit;mv.classList.toggle('warn',G.movesUsed>=G.movesLimit-1)}
+  if(G.mode==='classic'||G.mode==='custom'){mv.style.display='';mv.textContent=G.movesUsed+'/'+G.movesLimit;mv.classList.toggle('warn',G.movesUsed>=G.movesLimit-1)}
   else mv.style.display='none';
   const tm=$('hudTime');
   if(G.mode==='timed'){tm.style.display='';tm.textContent=fmtTime(G.timeLeft)}
@@ -2018,6 +2087,7 @@ function updateModeStats(){
   $('statClassic').textContent='第'+DB.classic.level+'关 · ★'+DB.classic.stars;
   $('statTimed').textContent='最高 '+DB.timed.best+' 分';
   $('statEndless').textContent='第'+DB.endless.level+'局 · '+DB.endless.score+' 分';
+  $('statCustom').textContent='已存 '+DB.customs.length+' 关';
 }
 function openMode(){updateModeStats();
   D.querySelectorAll('.mode-card').forEach(el=>el.classList.toggle('cur',el.dataset.mode===G.mode));
@@ -2026,7 +2096,168 @@ function switchMode(mode){
   G.mode=mode;
   if(mode==='classic')startLevel(DB.classic.level);
   else if(mode==='timed')startLevel(1);
-  else startLevel(DB.endless.level);
+  else if(mode==='endless')startLevel(DB.endless.level);
+}
+
+/* ==================== 关卡工坊 + 自定义关卡 ==================== */
+const ED_GLYPH=['→','←','↑','↓','◉','○'];
+const E={size:5,board:makeBoard3(5),layer:4,tool:0};
+
+function encodeBoard(board,size){
+  const AL='0123456789abcdefghijklmnopqrstuvwxyz';
+  let s='';
+  for(let x=0;x<size;x++)for(let y=0;y<size;y++)for(let z=0;z<size;z++){
+    const c=board[x][y][z];
+    s+=c?AL[c.b?7:(c.d+1)]:'0';
+  }
+  return 'L'+size+s;
+}
+function decodeBoard(code){
+  try{
+    if(!code||code[0]!=='L')return null;
+    const size=+code[1];
+    if(size<3||size>6)return null;
+    const cells=code.slice(2);
+    if(cells.length!==size*size*size)return null;
+    const AL='0123456789abcdefghijklmnopqrstuvwxyz';
+    const board=makeBoard3(size);let i=0;
+    for(let x=0;x<size;x++)for(let y=0;y<size;y++)for(let z=0;z<size;z++){
+      const v=AL.indexOf(cells[i++]);
+      if(v===0)continue;
+      board[x][y][z]=v===7?{b:1}:{d:v-1};
+    }
+    return {size,board};
+  }catch(e){return null}
+}
+function getCustomUrl(code){
+  return location.href.split('#')[0]+'#L'+code;
+}
+function shareCustom(){
+  const code=encodeBoard(E.board,E.size);
+  const url=getCustomUrl(code);
+  const done=()=>toast('🔗 链接已复制，分享给朋友吧！');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done,()=>{prompt('复制这个链接分享你的关卡：',url);done()});
+  }else{prompt('复制这个链接分享你的关卡：',url);done()}
+}
+
+function renderEdit(){
+  // 尺寸行
+  const sr=$('sizeRow');sr.innerHTML='';
+  for(let s=3;s<=6;s++){
+    const b=D.createElement('button');
+    b.className='ed-size'+(s===E.size?' on':'');b.textContent=s+'×'+s+'×'+s;
+    b.addEventListener('click',()=>{E.size=s;E.board=makeBoard3(s);E.layer=s-1;
+      $('layerSlider').max=s-1;$('layerSlider').value=s-1;renderEdit()});
+    sr.appendChild(b);
+  }
+  // 工具行：6 方向 + 空白 + 擦除
+  const tr=$('toolRow');tr.innerHTML='';
+  const mkTool=(label,idx,cls)=>{
+    const b=D.createElement('button');
+    b.className='ed-tool '+cls+(E.tool===idx?' on':'');b.textContent=label;
+    b.addEventListener('click',()=>{E.tool=idx;renderEdit()});
+    tr.appendChild(b);
+  };
+  for(let i=0;i<6;i++)mkTool(ED_GLYPH[i],i,'');
+  mkTool('⬜',6,'blank');mkTool('🧹',7,'');
+  // 层滑块
+  $('layerSlider').max=E.size-1;
+  $('layerSlider').value=E.layer;
+  $('layerLbl').textContent=E.layer+'/'+(E.size-1);
+  // 网格
+  const g=$('editGrid');
+  g.style.gridTemplateColumns='repeat('+E.size+',1fr)';
+  g.innerHTML='';
+  for(let z=0;z<E.size;z++)for(let x=0;x<E.size;x++){
+    const cell=D.createElement('div');
+    cell.className='ed-cell';
+    const c=E.board[x][E.layer][z];
+    if(c){if(c.b){cell.classList.add('blank');cell.textContent='⬜'}
+      else{cell.classList.add('arrow');cell.textContent=ED_GLYPH[c.d]}}
+    cell.addEventListener('click',()=>{
+      if(E.tool===7)E.board[x][E.layer][z]=null;
+      else if(E.tool===6)E.board[x][E.layer][z]={b:1};
+      else E.board[x][E.layer][z]={d:E.tool};
+      updateEditBadge();renderEdit();
+    });
+    g.appendChild(cell);
+  }
+  updateEditBadge();
+}
+function updateEditBadge(){
+  const b=$('editBadge');
+  const total=countBlocks3(E.board,E.size);
+  if(total===0){b.className='warn';b.textContent='⚠️ 空棋盘 —— 先放些方块吧';return}
+  if(!anyRemovable3(E.board,E.size)){b.className='warn';b.textContent='⚠️ 没有任何可消除的方块（所有箭头都被挡住）';return}
+  b.className=greedySolvable3(E.board,E.size)?'ok':'warn';
+  b.textContent=greedySolvable3(E.board,E.size)?'✅ 该布局有解！':'⚠️ 该布局可能无解（灰色块记得用炸弹/交换处理）';
+}
+function openEditor(){
+  renderEdit();
+  // 我的关卡列表
+  const list=$('customList');
+  if(list){
+    list.innerHTML='';
+    DB.customs.forEach((c,i)=>{
+      const chip=D.createElement('button');
+      chip.className='btn ghost';chip.style.cssText='padding:6px 12px;font-size:12px;margin:3px';
+      chip.textContent=c.name;
+      chip.addEventListener('click',()=>{
+        const dec=decodeBoard(c.code);
+        if(dec){E.size=dec.size;E.board=dec.board;E.layer=E.size-1;$('layerSlider').max=E.size-1;$('layerSlider').value=E.layer;renderEdit()}
+      });
+      list.appendChild(chip);
+    });
+  }
+  $('ovEdit').classList.add('show');
+}
+function saveCustom(code){
+  const name='我的关卡 '+(DB.customs.length+1);
+  DB.customs.push({name,code});
+  if(DB.customs.length>20)DB.customs=DB.customs.slice(-20);
+  saveDB();updateModeStats();
+}
+function playCustom(){
+  const code=encodeBoard(E.board,E.size);
+  if(countBlocks3(E.board,E.size)===0){toast('棋盘是空的，先设计关卡！');return}
+  saveCustom(code);
+  $('ovEdit').classList.remove('show');
+  startLevel(0,code);
+}
+
+/* 自定义关卡游玩：startLevel(level, customCode) */
+function startLevel(level, customCode){
+  G.level=level;
+  if(customCode){
+    const dec=decodeBoard(customCode);
+    if(!dec){toast('关卡数据无效');return}
+    G.mode='custom';G.customCode=customCode;
+    G.size=dec.size;G.board=dec.board;
+  }else{
+    if(G.mode==='custom')G.mode='classic';
+    const cfg=modeConf(G.mode,level);
+    G.size=cfg.size;
+    G.board=genLevelUsable3(G.size,cfg.fill,cfg.blanks,(Math.random()*1e9)|0,20);
+    if(!G.board){toast('关卡生成失败，重试…');G.board=genLevelUsable3(G.size,.45,0,(Math.random()*1e9)|0,40)}
+  }
+  const total=countBlocks3(G.board,G.size),blanks=countBlanks3(G.board,G.size);
+  G.pu=customCode?{refresh:2,swap:2,bomb:2,hint:3}:modeConf(G.mode,level);
+  if(!customCode)G.pu={refresh:G.pu.refresh,swap:G.pu.swaps,bomb:G.pu.bombs,hint:G.pu.hint};
+  G.movesUsed=0;
+  G.movesLimit=(G.mode==='classic'||G.mode==='custom')?(total-blanks)+3:9999;
+  G.score=G.mode==='endless'?DB.endless.score:0;
+  G.timeMax=G.mode==='timed'?60:0;G.timeLeft=60;
+  G.elapsed=0;
+  G.tool=null;G.selA=null;G.busy=false;
+  G.slides=[];G.shakes=[];G.hints=[];G.fx=[];G.hoverId=-1;G.combo=0;
+  $('titleLv').textContent=G.mode==='custom'?'自定义':(G.mode==='endless'?('无尽 '+level):('第 '+level+' 关'));
+  buildInstances();
+  fitCamera();
+  updateHUD();refreshBadges();
+  if(G.timerId){clearInterval(G.timerId);G.timerId=null}
+  if(G.mode==='timed')startTimer('count');
+  else if(G.mode==='classic'||G.mode==='custom')startTimer('elapsed');
 }
 
 /* ---------- 主循环 ---------- */
@@ -2076,10 +2307,25 @@ function init(){
   $('btnMode').addEventListener('click',openMode);
   $('btnSettings').addEventListener('click',()=>$('ovSet').classList.add('show'));
   $('swSound').classList.toggle('on',DB.sound);
+  $('swBgm').classList.toggle('on',DB.bgm);
   $('swHaptic').classList.toggle('on',DB.haptic);
   $('swSound').addEventListener('click',e=>{DB.sound=!DB.sound;e.currentTarget.classList.toggle('on',DB.sound);saveDB()});
+  $('swBgm').addEventListener('click',e=>{DB.bgm=!DB.bgm;e.currentTarget.classList.toggle('on',DB.bgm);saveDB();
+    if(DB.bgm)startBGM();else stopBGM()});
   $('swHaptic').addEventListener('click',e=>{DB.haptic=!DB.haptic;e.currentTarget.classList.toggle('on',DB.haptic);saveDB()});
   $('btnHelp').addEventListener('click',()=>$('ovHelp').classList.add('show'));
+  // 关卡工坊
+  $('layerSlider').addEventListener('input',e=>{E.layer=+e.target.value;renderEdit()});
+  $('edRandom').addEventListener('click',()=>{
+    E.board=genLevel3(E.size,.65,0,(Math.random()*1e9)|0);
+    renderEdit();toast('已随机生成');
+  });
+  $('edClear').addEventListener('click',()=>{E.board=makeBoard3(E.size);renderEdit();toast('已清空')});
+  $('edPlay').addEventListener('click',playCustom);
+  $('edShare').addEventListener('click',shareCustom);
+  D.querySelectorAll('[data-edit]').forEach(el=>el.addEventListener('click',()=>{
+    $('ovMode').classList.remove('show');openEditor();
+  }));
   $('btnReset').addEventListener('click',()=>{
     if(confirm('确定重置所有进度？')){DB=JSON.parse(JSON.stringify(defDB));saveDB();switchMode(G.mode);$('ovSet').classList.remove('show')}
   });
@@ -2095,7 +2341,17 @@ function init(){
   }));
 
   if(!DB.help){$('ovHelp').classList.add('show');DB.help=true;saveDB()}
-  switchMode('classic');
+  // URL 分享链接：打开自定义关卡
+  const hm=location.hash.match(/^#L([0-9a-zA-Z]+)$/);
+  if(hm){
+    const dec=decodeBoard(hm[1]);
+    if(dec){startLevel(0,hm[1]);toast('已加载分享的自定义关卡');}
+  }else{
+    switchMode('classic');
+  }
+  // 首次手势后启动背景音乐（AudioContext 需要用户手势）
+  const bgmOnce=()=>{startBGM();D.removeEventListener('pointerdown',bgmOnce)};
+  D.addEventListener('pointerdown',bgmOnce);
   loop(0);
 }
 if(D.readyState!=='loading')init();else D.addEventListener('DOMContentLoaded',init);
