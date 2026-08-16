@@ -2109,7 +2109,7 @@ function animStep(dt){
       if(k>=1){scene.remove(f.flash);scene.remove(f.ring);f.flash.dispose&&f.flash.dispose();f.ring.geometry.dispose();f.ring.material.dispose();G.fx.splice(i,1)}
     }
   }
-  if(groups.length)groups.forEach(m=>m.instanceMatrix.needsUpdate=true);
+  if(blocksMesh)blocksMesh.instanceMatrix.needsUpdate=true;
   // 连击衰减
   if(G.combo>0&&performance.now()-G.lastRemove>1800)G.combo=0;
 }
