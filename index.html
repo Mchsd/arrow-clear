@@ -1569,7 +1569,7 @@ const COL={green:0x2fce6e,greenHi:0x6cf79b,slate:0x6f81ab,slateHi:0x93a5cd,
 
 function setupThree(){
   const stage=$('stage');
-  renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+  renderer=new THREE.WebGLRenderer({antialias:true});   // 不用 high-performance：iOS 上可能创建上下文失败
   renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
   renderer.setSize(stage.clientWidth,stage.clientHeight);
   renderer.outputEncoding=THREE.sRGBEncoding;
@@ -1615,6 +1615,12 @@ function setupThree(){
 
   raycaster=new THREE.Raycaster();
   clock=new THREE.Clock();
+  // Instancing 能力检测：不支持则明确报错而不是静默空白
+  const gl=renderer.getContext();
+  const isGL2=typeof WebGL2RenderingContext!=='undefined'&&gl instanceof WebGL2RenderingContext;
+  if(!isGL2&&!gl.getExtension('ANGLE_instanced_arrays')){
+    throw new Error('当前浏览器不支持 WebGL 实例化渲染（3D 方块需要）');
+  }
 }
 
 /* ============ 箭头表面贴图：贴面平面与方块面同尺寸(0.92)、间隙0.002（视觉一体，零悬浮） ============ */
@@ -2436,19 +2442,34 @@ window.__dbg=()=>JSON.stringify({
 });
 window.G=G;
 
+function webglDiag(){
+  try{
+    const c=D.createElement('canvas');
+    const gl=c.getContext('webgl2')||c.getContext('webgl')||c.getContext('experimental-webgl');
+    if(!gl)return 'WebGL 不可用';
+    const inst=gl.getExtension('ANGLE_instanced_arrays');
+    return '环境：WebGL'+(typeof WebGL2RenderingContext!=='undefined'&&gl instanceof WebGL2RenderingContext?'2':'1')
+      +(inst?'（实例化✓）':'（实例化✗）');
+  }catch(e){return 'WebGL 检测异常：'+(e&&e.message||e)}
+}
 /* ---------- 初始化 ---------- */
 function init(){
   try{
     setupThree();
   }catch(e){
     $('err').style.display='block';
-    $('err').textContent='3D 初始化失败：'+(e&&e.message||e)+'\n请尝试更新浏览器（需 WebGL 支持）';
+    $('err').textContent='3D 初始化失败：'+(e&&e.message||e)+'\n'+webglDiag()+'。请换用系统浏览器（Safari/Chrome）打开';
     return;
   }
   const stage=$('stage');
-  const rsize=()=>{const w=stage.clientWidth,h=stage.clientHeight;
-    if(!w||!h)return;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()};
+  const rsize=()=>{
+    let w=stage.clientWidth,h=stage.clientHeight;
+    if(!w||!h){w=window.innerWidth;h=window.innerHeight-190}   // 布局塌陷兜底
+    if(!w||!h)return;
+    renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()};
   window.addEventListener('resize',rsize);
+  if(window.ResizeObserver)new ResizeObserver(rsize).observe(stage);  // 键盘/地址栏/旋转都覆盖
+  rsize();
 
   const el=renderer.domElement;
   el.addEventListener('pointerdown',e=>{e.preventDefault();onDown(e)});
