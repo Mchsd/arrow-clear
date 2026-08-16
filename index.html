@@ -1539,7 +1539,7 @@ function floatScore(pos3,text){
 }
 
 /* ==================== THREE 场景 ==================== */
-let renderer,scene,camera,controls,blocksMesh,arrowsMesh,raycaster,clock;
+let renderer,scene,camera,controls,blocksMesh,raycaster,clock;
 
 const COL={green:0x2fce6e,greenHi:0x6cf79b,slate:0x6f81ab,slateHi:0x93a5cd,
   amber:0xffc04d,red:0xff8a7a,white:0xffffff,arrow:0x0d1c3a};
@@ -1584,24 +1584,132 @@ function setupThree(){
   clock=new THREE.Clock();
 }
 
-function buildArrowGeometry(){
-  const shaft=new THREE.CylinderGeometry(.055,.055,.56,8).translate(0,.25,0);
-  const head=new THREE.ConeGeometry(.15,.26,10).translate(0,.59,0);
-  const pos=[],nor=[];
-  for(const g of [shaft,head]){
-    const ng=g.toNonIndexed();
-    pos.push(ng.attributes.position.array);
-    nor.push(ng.attributes.normal.array);
+/* ============ 表面箭头贴图系统：箭头印在方块 6 个面上（像原版） ============ */
+/* 每个面的 2D 基底（从面外侧看：right=纹理+x, up=纹理+y） */
+const FACE_DEFS=[
+  {n:[1,0,0], r:[0,0,1], u:[0,1,0]},
+  {n:[-1,0,0],r:[0,0,-1],u:[0,1,0]},
+  {n:[0,1,0], r:[1,0,0], u:[0,0,1]},
+  {n:[0,-1,0],r:[-1,0,0],u:[0,0,1]},
+  {n:[0,0,1], r:[1,0,0], u:[0,1,0]},
+  {n:[0,0,-1],r:[1,0,0], u:[0,1,0]},
+];
+const DIR_AXIS=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+const DECAL_QUATS=[];
+(function(){
+  for(const f of FACE_DEFS){
+    DECAL_QUATS.push(new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(...f.r),new THREE.Vector3(...f.u),new THREE.Vector3(...f.n))));
   }
-  const n=pos.reduce((s,a)=>s+a.length,0);
-  const p=new Float32Array(n),no=new Float32Array(n);
-  let o=0;for(const a of pos){p.set(a,o);o+=a.length}
-  o=0;for(const a of nor){no.set(a,o);o+=a.length}
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.BufferAttribute(p,3));
-  geo.setAttribute('normal',new THREE.BufferAttribute(no,3));
-  shaft.dispose();head.dispose();
-  return geo;
+})();
+
+/* 某方向 d 的方块，在面 fi 上显示的箭头：'right'|'left'|'up'|'down'|'dot'|null(指向面内，不显示) */
+function faceGlyph(di,fi){
+  const d=DIR_AXIS[di],f=FACE_DEFS[fi];
+  if(d[0]===f.n[0]&&d[1]===f.n[1]&&d[2]===f.n[2])return 'dot';
+  if(d[0]===-f.n[0]&&d[1]===-f.n[1]&&d[2]===-f.n[2])return null;
+  const rx=d[0]*f.r[0]+d[1]*f.r[1]+d[2]*f.r[2];
+  const uy=d[0]*f.u[0]+d[1]*f.u[1]+d[2]*f.u[2];
+  if(rx===1)return 'right';if(rx===-1)return 'left';
+  if(uy===1)return 'up';return 'down';
+}
+
+const GLYPH_TEX={};
+function glyphTexture(g){
+  if(GLYPH_TEX[g])return GLYPH_TEX[g];
+  const cv=D.createElement('canvas');cv.width=64;cv.height=64;
+  const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,64,64);
+  ctx.fillStyle='#0b1530';ctx.strokeStyle='#0b1530';
+  if(g==='dot'){
+    ctx.beginPath();ctx.arc(32,32,9,0,Math.PI*2);ctx.fill();
+    ctx.lineWidth=5;ctx.beginPath();ctx.arc(32,32,17,0,Math.PI*2);ctx.stroke();
+  }else{
+    ctx.save();ctx.translate(32,32);
+    if(g==='left')ctx.rotate(Math.PI);
+    if(g==='up')ctx.rotate(Math.PI/2);
+    if(g==='down')ctx.rotate(-Math.PI/2);
+    ctx.fillRect(-3.5,-17,7,34);                       // 箭杆
+    ctx.beginPath();ctx.moveTo(24,0);ctx.lineTo(-4,-12);ctx.lineTo(-4,12);ctx.closePath();ctx.fill(); // 箭头
+    ctx.restore();
+  }
+  const tex=new THREE.CanvasTexture(cv);
+  tex.anisotropy=4;
+  GLYPH_TEX[g]=tex;
+  return tex;
+}
+
+let decalMeshes=new Map();   // 'fi|glyph' -> InstancedMesh
+let decalRefs=new Map();     // key3 -> [{m:mesh,i:idx}...]
+function clearDecals(){
+  for(const dm of decalMeshes.values()){scene.remove(dm);dm.geometry.dispose();dm.material.dispose()}
+  decalMeshes.clear();decalRefs.clear();
+}
+/* 按当前棋盘重建全部表面贴图（关卡加载/刷新/交换时调用） */
+function buildDecals(){
+  clearDecals();
+  const size=G.size;
+  const counts=new Map();
+  const need=[];
+  for(let x=0;x<size;x++)for(let y=0;y<size;y++)for(let z=0;z<size;z++){
+    const cell=G.board[x][y][z];
+    if(!cell||cell.b)continue;
+    const per=[];
+    for(let fi=0;fi<6;fi++){
+      const g=faceGlyph(cell.d,fi);
+      if(!g)continue;
+      const k=fi+'|'+g;
+      counts.set(k,(counts.get(k)||0)+1);
+      per.push([fi,g]);
+    }
+    need.push({x,y,z,per});
+  }
+  const geo=new THREE.PlaneGeometry(.78,.78);
+  const v=new THREE.Vector3(),m=new THREE.Matrix4();
+  for(const [k,cnt] of counts){
+    const fi=+k.split('|')[0],g=k.split('|')[1];
+    const mesh=new THREE.InstancedMesh(geo,new THREE.MeshBasicMaterial({map:glyphTexture(g),transparent:true,depthWrite:false}),cnt);
+    mesh.count=0;
+    decalMeshes.set(k,mesh);
+    scene.add(mesh);
+  }
+  for(const {x,y,z,per} of need){
+    const refs=[];
+    for(const [fi,g] of per){
+      const k=fi+'|'+g;
+      const mesh=decalMeshes.get(k);
+      if(!mesh)continue;
+      const f=FACE_DEFS[fi];
+      v.set(x+f.n[0]*.485,y+f.n[1]*.485,z+f.n[2]*.485);
+      m.compose(v,DECAL_QUATS[fi],new THREE.Vector3(1,1,1));
+      mesh.setMatrixAt(mesh.count,m);
+      refs.push({m:mesh,i:mesh.count});
+      mesh.count++;
+    }
+    if(refs.length)decalRefs.set(key3(x,y,z),refs);
+  }
+  for(const mesh of decalMeshes.values())mesh.instanceMatrix.needsUpdate=true;
+}
+function zeroDecals(x,y,z){
+  const refs=decalRefs.get(key3(x,y,z));
+  if(!refs)return;
+  const m0=new THREE.Matrix4().makeScale(0,0,0);
+  for(const r of refs){r.m.setMatrixAt(r.i,m0);r.m.instanceMatrix.needsUpdate=true}
+  decalRefs.delete(key3(x,y,z));
+}
+/* 滑出动画期间让贴图跟着方块走 */
+function slideDecals(x,y,z,dx,dy,dz){
+  const refs=decalRefs.get(key3(x,y,z));
+  if(!refs)return;
+  const m=new THREE.Matrix4(),p=new THREE.Vector3(),q=new THREE.Quaternion();
+  for(const r of refs){
+    r.m.getMatrixAt(r.i,m);
+    p.setFromMatrixPosition(m).add(new THREE.Vector3(dx,dy,dz));
+    q.setFromRotationMatrix(m);
+    m.compose(p,q,new THREE.Vector3(1,1,1));
+    r.m.setMatrixAt(r.i,m);
+  }
 }
 
 function key3(x,y,z){return x+','+y+','+z}
@@ -1613,7 +1721,6 @@ function cellColor(cell){
 /* 重建全部实例（关卡加载/重开时） */
 function buildInstances(){
   if(blocksMesh){scene.remove(blocksMesh);blocksMesh.geometry.dispose();blocksMesh.material.dispose()}
-  if(arrowsMesh){scene.remove(arrowsMesh);arrowsMesh.geometry.dispose();arrowsMesh.material.dispose()}
   G.instOf.clear();G.posOf=[];
 
   const size=G.size;
@@ -1621,12 +1728,8 @@ function buildInstances(){
   const geo=new THREE.BoxGeometry(1,1,1);
   blocksMesh=new THREE.InstancedMesh(geo,new THREE.MeshLambertMaterial({color:0xffffff}),n);
   blocksMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  const arrowGeo=buildArrowGeometry();
-  arrowsMesh=new THREE.InstancedMesh(arrowGeo,new THREE.MeshLambertMaterial({color:COL.arrow,emissive:0x0d1c3a,emissiveIntensity:.25}),n);
 
   const m=new THREE.Matrix4(),q=new THREE.Quaternion(),p=new THREE.Vector3(),s=new THREE.Vector3(.92,.92,.92);
-  const aq=new THREE.Quaternion(),ap=new THREE.Vector3();
-  const up=new THREE.Vector3(0,1,0);
   let idx=0;
   for(let x=0;x<size;x++)for(let y=0;y<size;y++)for(let z=0;z<size;z++){
     const cell=G.board[x][y][z];
@@ -1636,24 +1739,14 @@ function buildInstances(){
       p.set(x,y,z);
       m.compose(p,q,s);blocksMesh.setMatrixAt(idx,m);
       blocksMesh.setColorAt(idx,new THREE.Color(cellColor(cell)));
-      // 箭头浮在方块顶面之上，指向世界方向
-      if(!cell.b){
-        const d=DIRS3[cell.d];
-        aq.setFromUnitVectors(up,new THREE.Vector3(d.dx,d.dy,d.dz));
-        ap.set(x,y+.62,z);
-        m.compose(ap,aq,new THREE.Vector3(.95,.95,.95));
-        arrowsMesh.setMatrixAt(idx,m);
-      }else{
-        m.makeScale(0,0,0);arrowsMesh.setMatrixAt(idx,m);
-      }
       idx++;
     }
   }
-  blocksMesh.count=idx;arrowsMesh.count=idx;
+  blocksMesh.count=idx;
   blocksMesh.instanceMatrix.needsUpdate=true;
   if(blocksMesh.instanceColor)blocksMesh.instanceColor.needsUpdate=true;
-  arrowsMesh.instanceMatrix.needsUpdate=true;
-  scene.add(blocksMesh);scene.add(arrowsMesh);
+  scene.add(blocksMesh);
+  buildDecals();   // 表面箭头贴图
 }
 
 function setBlockColor(x,y,z,color){
@@ -1782,7 +1875,7 @@ function doRemove(x,y,z){
   G.score+=gained;
   const d=DIRS3[cell.d];
   const dist=G.size;                     // 滑出整个塔身
-  G.slides.push({x,y,z,d,dist,t:0,dur:.34,ease:true});
+  G.slides.push({x,y,z,d,dist,t:0,dur:.34,ease:true,lastE:0});
   sfxPop();if(G.combo>1)setTimeout(()=>beep(620+G.combo*60,.09,'triangle',.15),40);
   vibrate(12);
   const p=new THREE.Vector3(x,y,z);
@@ -1811,6 +1904,7 @@ function doBomb(x,y,z){
   G.fx.push({type:'boom',flash,ring,t:0,max:1.5,bpos});
   hit.forEach(([X,Y,Z])=>{
     G.board[X][Y][Z]=null;
+    zeroDecals(X,Y,Z);
     const idx=G.instOf.get(key3(X,Y,Z));
     if(idx!==undefined){G.slides.push({x:X,y:Y,z:Z,pop:true,t:0,dur:.26+Math.random()*.12})}
   });
@@ -1823,21 +1917,7 @@ function doRefresh(){
   if(!nb){toast('无法重排，保持原样');return}
   G.pu.refresh--;
   G.board=nb;
-  // 重建箭头方向
-  const q=new THREE.Quaternion(),p=new THREE.Vector3(),m=new THREE.Matrix4();
-  const up=new THREE.Vector3(0,1,0);
-  for(let x=0;x<G.size;x++)for(let y=0;y<G.size;y++)for(let z=0;z<G.size;z++){
-    const cell=G.board[x][y][z],idx=G.instOf.get(key3(x,y,z));
-    if(idx===undefined)continue;
-    if(!cell.b){
-      const d=DIRS3[cell.d];
-      q.setFromUnitVectors(up,new THREE.Vector3(d.dx,d.dy,d.dz));
-      p.set(x,y+.62,z);
-      m.compose(p,q,new THREE.Vector3(.95,.95,.95));
-      arrowsMesh.setMatrixAt(idx,m);
-    }else{m.makeScale(0,0,0);arrowsMesh.setMatrixAt(idx,m)}
-  }
-  arrowsMesh.instanceMatrix.needsUpdate=true;
+  buildDecals();   // 重建表面箭头贴图
   sfxSwap();vibrate(8);
   updateHUD();refreshBadges();clearHover();
   toast('箭头已重新排列');
@@ -1850,22 +1930,12 @@ function doSwap(a,b){
   G.pu.swap--;
   const da=ca.d,ba=ca.b,db=cb.d,bb=cb.b;
   ca.b=bb;ca.d=db;cb.b=ba;cb.d=da;
-  // 更新箭头网格与颜色
-  const q=new THREE.Quaternion(),p=new THREE.Vector3(),m=new THREE.Matrix4();
-  const up=new THREE.Vector3(0,1,0);
+  // 更新颜色 + 重建贴图
   for(const [bx,by,bz] of [a,b]){
-    const cell=G.board[bx][by][bz],idx=G.instOf.get(key3(bx,by,bz));
-    if(idx===undefined)continue;
-    setBlockColor(bx,by,bz,cellColor(cell));
-    if(!cell.b){
-      const d=DIRS3[cell.d];
-      q.setFromUnitVectors(up,new THREE.Vector3(d.dx,d.dy,d.dz));
-      p.set(bx,by+.62,bz);
-      m.compose(p,q,new THREE.Vector3(.95,.95,.95));
-      arrowsMesh.setMatrixAt(idx,m);
-    }else{m.makeScale(0,0,0);arrowsMesh.setMatrixAt(idx,m)}
+    const cell=G.board[bx][by][bz];
+    if(cell)setBlockColor(bx,by,bz,cellColor(cell));
   }
-  arrowsMesh.instanceMatrix.needsUpdate=true;
+  buildDecals();
   sfxSwap();vibrate(8);
   updateHUD();refreshBadges();clearHover();
   toast('已交换箭头');
@@ -1905,8 +1975,11 @@ function animStep(dt){
         p.set(s.x,s.y,s.z);
         m.compose(p,q,new THREE.Vector3(Math.max(sc,0.001),Math.max(sc,0.001),Math.max(sc,0.001)));
       }else{
+        const step=e-s.lastE;s.lastE=e;
         p.set(s.x+s.d.dx*s.dist*e,s.y+s.d.dy*s.dist*e,s.z+s.d.dz*s.dist*e);
         m.compose(p,q,new THREE.Vector3(.92,.92,.92));
+        // 表面贴图跟着方块一起滑出
+        slideDecals(s.x,s.y,s.z,s.d.dx*s.dist*step,s.d.dy*s.dist*step,s.d.dz*s.dist*step);
       }
       blocksMesh.setMatrixAt(idx,m);
     }
@@ -1914,8 +1987,7 @@ function animStep(dt){
       if(idx!==undefined){
         p.set(s.x,s.y,s.z);m.compose(p,q,new THREE.Vector3(0,0,0));
         blocksMesh.setMatrixAt(idx,m);
-        const aIdx=G.instOf.get(key3(s.x,s.y,s.z));
-        if(aIdx!==undefined){m.makeScale(0,0,0);arrowsMesh.setMatrixAt(aIdx,m);arrowsMesh.instanceMatrix.needsUpdate=true}
+        zeroDecals(s.x,s.y,s.z);
         blocksMesh.instanceMatrix.needsUpdate=true;
       }
       G.slides.splice(i,1);
@@ -2278,7 +2350,7 @@ setInterval(()=>{render()},80);
 window.__dbg=()=>JSON.stringify({
   size:G.size,blocks:countBlocks3(G.board,G.size),blanks:countBlanks3(G.board,G.size),
   removable:anyRemovable3(G.board,G.size),slides:G.slides.length,fx:G.fx.length,
-  inst:blocksMesh?blocksMesh.count:0,arrows:arrowsMesh?arrowsMesh.count:0,
+  inst:blocksMesh?blocksMesh.count:0,decals:decalMeshes.size,
   webgl:renderer?renderer.getContext().getParameter(renderer.getContext().RENDERER):'no-renderer'
 });
 window.G=G;
