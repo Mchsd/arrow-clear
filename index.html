@@ -1607,7 +1607,7 @@ function setupThree(){
   clock=new THREE.Clock();
 }
 
-/* ============ 表面箭头贴图系统：箭头印在方块 6 个面上（像原版） ============ */
+/* ============ 箭头表面贴图：贴面平面与方块面同尺寸(0.92)、间隙0.002（视觉一体，零悬浮） ============ */
 /* 每个面的 2D 基底（从面外侧看：right=纹理+x, up=纹理+y） */
 const FACE_DEFS=[
   {n:[1,0,0], r:[0,0,1], u:[0,1,0]},
@@ -1647,7 +1647,6 @@ function glyphTexture(g){
   ctx.fillStyle='#0b1530';ctx.strokeStyle='#0b1530';
   ctx.lineCap='round';ctx.lineJoin='round';
   if(g==='dot'){
-    // 指向面外：实心圆 + 细环（清晰识别"朝向你"）
     ctx.beginPath();ctx.arc(32,32,11,0,Math.PI*2);ctx.fill();
     ctx.lineWidth=4;ctx.beginPath();ctx.arc(32,32,18,0,Math.PI*2);ctx.stroke();
   }else{
@@ -1655,12 +1654,11 @@ function glyphTexture(g){
     if(g==='left')ctx.rotate(Math.PI);
     if(g==='up')ctx.rotate(Math.PI/2);
     if(g==='down')ctx.rotate(-Math.PI/2);
-    // 粗壮的直箭头：长箭杆 + 比例协调的箭头（占据贴图主体，居中）
-    ctx.fillRect(-23,-4.5,30,9);                        // 箭杆：x∈[-23,7]
+    ctx.fillRect(-23,-4.5,30,9);
     ctx.beginPath();
-    ctx.moveTo(26,0);                                   // 箭尖
-    ctx.lineTo(1,-14);                                  // 头部基线上角
-    ctx.lineTo(1,14);                                   // 头部基线下角
+    ctx.moveTo(26,0);
+    ctx.lineTo(1,-14);
+    ctx.lineTo(1,14);
     ctx.closePath();ctx.fill();
     ctx.restore();
   }
@@ -1695,7 +1693,7 @@ function buildDecals(){
     }
     need.push({x,y,z,per});
   }
-  const geo=new THREE.PlaneGeometry(.85,.85);
+  const geo=new THREE.PlaneGeometry(.92,.92);   // 与方块面同尺寸 → 无贴纸边缘
   const v=new THREE.Vector3(),m=new THREE.Matrix4();
   for(const [k,cnt] of counts){
     const fi=+k.split('|')[0],g=k.split('|')[1];
@@ -1711,7 +1709,7 @@ function buildDecals(){
       const mesh=decalMeshes.get(k);
       if(!mesh)continue;
       const f=FACE_DEFS[fi];
-      v.set(x+f.n[0]*.485,y+f.n[1]*.485,z+f.n[2]*.485);
+      v.set(x+f.n[0]*.462,y+f.n[1]*.462,z+f.n[2]*.462);   // 方块面在±0.46，贴面间隙0.002
       m.compose(v,DECAL_QUATS[fi],new THREE.Vector3(1,1,1));
       mesh.setMatrixAt(mesh.count,m);
       refs.push({m:mesh,i:mesh.count});
@@ -1776,7 +1774,7 @@ function buildInstances(){
   blocksMesh.instanceMatrix.needsUpdate=true;
   if(blocksMesh.instanceColor)blocksMesh.instanceColor.needsUpdate=true;
   scene.add(blocksMesh);
-  buildDecals();   // 表面箭头贴图
+  buildDecals();   // 箭头表面贴图
 }
 
 function setBlockColor(x,y,z,color){
@@ -1821,8 +1819,7 @@ function pick(evt){
   const hits=raycaster.intersectObject(blocksMesh,false);
   if(!hits.length)return null;
   const id=hits[0].instanceId;
-  const pos=G.posOf[id];
-  return pos||null;
+  return G.posOf[id]||null;
 }
 
 /* ---------- 交互 ---------- */
@@ -1839,15 +1836,16 @@ function onUp(e){
   const pos=pick(e);
   if(pos)onCubeTap(pos[0],pos[1],pos[2]);
 }
+function posOfKey(k){const i=G.instOf.get(k);return i===undefined?null:(G.posOf[i]||null)}
 function onMove(e){
   const pos=pick(e);
   if(pos&&G.hoverId>=0&&G.hoverId!==pos.join(',')){
-    const old=G.posOf[G.hoverId];
+    const old=posOfKey(G.hoverId);
     if(old)restoreBlockColor(old[0],old[1],old[2]);
     G.hoverId=-1;
   }
   if(!pos){
-    if(G.hoverId>=0){const old=G.posOf[G.hoverId];if(old)restoreBlockColor(old[0],old[1],old[2]);G.hoverId=-1}
+    if(G.hoverId>=0){const old=posOfKey(G.hoverId);if(old)restoreBlockColor(old[0],old[1],old[2]);G.hoverId=-1}
     hideDirGuide();
     renderer.domElement.style.cursor='default';return;
   }
@@ -1855,16 +1853,16 @@ function onMove(e){
   const cell=G.board[pos[0]][pos[1]][pos[2]];
   if(cell&&(isRemovable3(G.board,pos[0],pos[1],pos[2],G.size)||G.tool==='swap'||G.tool==='bomb')){
     renderer.domElement.style.cursor='pointer';
-    if(G.hoverId!==k){if(G.hoverId>=0){const o=G.posOf[G.hoverId];if(o)restoreBlockColor(o[0],o[1],o[2])}
+    if(G.hoverId!==k){if(G.hoverId>=0){const o=posOfKey(G.hoverId);if(o)restoreBlockColor(o[0],o[1],o[2])}
       setBlockColor(pos[0],pos[1],pos[2],G.tool==='swap'?COL.amber:(isRemovable3(G.board,pos[0],pos[1],pos[2],G.size)?COL.greenHi:COL.red));G.hoverId=k}
     showDirGuide(pos[0],pos[1],pos[2]);   // 沿箭头方向的方向预览
   }else{
     renderer.domElement.style.cursor='default';
     hideDirGuide();
-    if(G.hoverId!==k){if(G.hoverId>=0){const o=G.posOf[G.hoverId];if(o)restoreBlockColor(o[0],o[1],o[2])}G.hoverId=k}
+    if(G.hoverId!==k){if(G.hoverId>=0){const o=posOfKey(G.hoverId);if(o)restoreBlockColor(o[0],o[1],o[2])}G.hoverId=k}
   }
 }
-function clearHover(){if(G.hoverId>=0){const o=G.posOf[G.hoverId];if(o)restoreBlockColor(o[0],o[1],o[2]);G.hoverId=-1}
+function clearHover(){if(G.hoverId>=0){const o=posOfKey(G.hoverId);if(o)restoreBlockColor(o[0],o[1],o[2]);G.hoverId=-1}
   hideDirGuide()}
 
 /* ---------- 滑动方向预览：沿箭头方向画虚线光带（绿=可滑出，红=被挡扣步） ---------- */
@@ -1977,7 +1975,7 @@ function doRefresh(){
   if(!nb){toast('无法重排，保持原样');return}
   G.pu.refresh--;
   G.board=nb;
-  buildDecals();   // 重建表面箭头贴图
+  buildDecals();   // 重建箭头贴图
   sfxSwap();vibrate(8);
   updateHUD();refreshBadges();clearHover();
   toast('箭头已重新排列');
@@ -2095,7 +2093,7 @@ function animStep(dt){
       if(k>=1){scene.remove(f.flash);scene.remove(f.ring);f.flash.dispose&&f.flash.dispose();f.ring.geometry.dispose();f.ring.material.dispose();G.fx.splice(i,1)}
     }
   }
-  if(blocksMesh)blocksMesh.instanceMatrix.needsUpdate=true;
+  if(groups.length)groups.forEach(m=>m.instanceMatrix.needsUpdate=true);
   // 连击衰减
   if(G.combo>0&&performance.now()-G.lastRemove>1800)G.combo=0;
 }
