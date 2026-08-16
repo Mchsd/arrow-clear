@@ -1848,6 +1848,7 @@ function onMove(e){
   }
   if(!pos){
     if(G.hoverId>=0){const old=G.posOf[G.hoverId];if(old)restoreBlockColor(old[0],old[1],old[2]);G.hoverId=-1}
+    hideDirGuide();
     renderer.domElement.style.cursor='default';return;
   }
   const k=key3(pos[0],pos[1],pos[2]);
@@ -1856,12 +1857,40 @@ function onMove(e){
     renderer.domElement.style.cursor='pointer';
     if(G.hoverId!==k){if(G.hoverId>=0){const o=G.posOf[G.hoverId];if(o)restoreBlockColor(o[0],o[1],o[2])}
       setBlockColor(pos[0],pos[1],pos[2],G.tool==='swap'?COL.amber:(isRemovable3(G.board,pos[0],pos[1],pos[2],G.size)?COL.greenHi:COL.red));G.hoverId=k}
+    showDirGuide(pos[0],pos[1],pos[2]);   // 沿箭头方向的方向预览
   }else{
     renderer.domElement.style.cursor='default';
+    hideDirGuide();
     if(G.hoverId!==k){if(G.hoverId>=0){const o=G.posOf[G.hoverId];if(o)restoreBlockColor(o[0],o[1],o[2])}G.hoverId=k}
   }
 }
-function clearHover(){if(G.hoverId>=0){const o=G.posOf[G.hoverId];if(o)restoreBlockColor(o[0],o[1],o[2]);G.hoverId=-1}}
+function clearHover(){if(G.hoverId>=0){const o=G.posOf[G.hoverId];if(o)restoreBlockColor(o[0],o[1],o[2]);G.hoverId=-1}
+  hideDirGuide()}
+
+/* ---------- 滑动方向预览：沿箭头方向画虚线光带（绿=可滑出，红=被挡扣步） ---------- */
+let dirGuide=null;
+function showDirGuide(x,y,z){
+  hideDirGuide();
+  if(G.tool)return;                       // 工具模式下不显示，避免干扰
+  const cell=G.board[x][y][z];
+  if(!cell||cell.b)return;
+  const d=DIRS3[cell.d];
+  let steps=1,nx=x+d.dx,ny=y+d.dy,nz=z+d.dz;
+  while(inB3(nx,ny,nz,G.size)){nx+=d.dx;ny+=d.dy;nz+=d.dz;steps++}
+  const removable=isRemovable3(G.board,x,y,z,G.size);
+  const geo=new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(x,y,z),
+    new THREE.Vector3(x+d.dx*steps,y+d.dy*steps,z+d.dz*steps)]);
+  const mat=new THREE.LineDashedMaterial({
+    color:removable?0x7dffb0:0xff8a7a,dashSize:.2,gapSize:.13,
+    transparent:true,opacity:.9,depthWrite:false});
+  dirGuide=new THREE.Line(geo,mat);
+  dirGuide.computeLineDistances();
+  scene.add(dirGuide);
+}
+function hideDirGuide(){
+  if(dirGuide){scene.remove(dirGuide);dirGuide.geometry.dispose();dirGuide.material.dispose();dirGuide=null}
+}
 
 function onCubeTap(x,y,z){
   if(G.busy)return;
@@ -1896,6 +1925,7 @@ function onCubeTap(x,y,z){
 function doRemove(x,y,z){
   const cell=G.board[x][y][z];
   G.board[x][y][z]=null;                 // 逻辑立即生效
+  hideDirGuide();                        // 方块已动，方向预览撤掉
   G.movesUsed++;
   // 连击：1.8 秒内连续消除
   const now=performance.now();
@@ -1986,7 +2016,7 @@ function setTool(t){
   $('puSwap').classList.toggle('active',t==='swap');
   $('puBomb').classList.toggle('active',t==='bomb');
   if(G.selA){restoreBlockColor(G.selA[0],G.selA[1],G.selA[2]);G.selA=null}
-  clearHover();
+  clearHover();hideDirGuide();
   if(t)toast(t==='swap'?'选择两个方块交换箭头':'点击要炸毁的位置');
 }
 
