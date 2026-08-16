@@ -1575,6 +1575,16 @@ function setupThree(){
   renderer.outputEncoding=THREE.sRGBEncoding;
   stage.appendChild(renderer.domElement);
   renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+  // WebGL 上下文丢失/恢复处理（iOS Safari 后台恢复等场景）
+  renderer.domElement.addEventListener('webglcontextlost',e=>{
+    e.preventDefault();
+    $('err').style.display='block';
+    $('err').textContent='3D 渲染中断（WebGL 上下文丢失）\n请刷新页面继续游戏';
+  });
+  renderer.domElement.addEventListener('webglcontextrestored',()=>{
+    $('err').style.display='none';
+    renderBroken=null;
+  });
 
   scene=new THREE.Scene();
   scene.background=new THREE.Color(0x0a0f2e);
@@ -2389,10 +2399,25 @@ function startLevel(level, customCode){
 }
 
 /* ---------- 主循环 ---------- */
+let renderBroken=null;
 function render(){
-  controls.update();
-  animStep(Math.min(clock.getDelta(),.05));
-  renderer.render(scene,camera);
+  // 相机 NaN 兜底（双指缩放等极端操作可能产生 NaN → 画面空白）
+  const cp=camera.position;
+  if(!isFinite(cp.x)||!isFinite(cp.y)||!isFinite(cp.z)||!isFinite(controls.target.x)){
+    resetView();sfxSwap();
+    return;
+  }
+  try{
+    controls.update();
+    animStep(Math.min(clock.getDelta(),.05));
+    renderer.render(scene,camera);
+  }catch(e){
+    if(!renderBroken){
+      renderBroken=e;
+      $('err').style.display='block';
+      $('err').textContent='3D 渲染中断：'+(e&&e.message||e)+'\n请刷新页面重试';
+    }
+  }
 }
 let rafId=null;
 function loop(t){
