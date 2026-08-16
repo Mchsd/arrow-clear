@@ -197,11 +197,12 @@
     <div class="help-list">
       <div>🎯 点击<b>带箭头</b>的方块 → 它沿箭头方向<b>滑出方块塔</b>并消除</div>
       <div>🔄 <b>拖拽</b>旋转视角，<b>双指</b>缩放，从各个角度找突破口</div>
+      <div>🧊 方块塔是<b>实心排满</b>的，只能从外往内一层层消</div>
       <div>🚫 路径被挡的方块<b>无法滑出</b>（经典模式扣步数！）</div>
-      <div>⬜ <b>灰色方块</b>无箭头，用 💣炸弹 或 ⇄交换 处理</div>
+      <div>⬜ <b>灰色方块</b>无箭头，用 💣炸弹 或 ⇄交换 处理（工坊关卡才有）</div>
       <div>⟳ 刷新 = 重新排列箭头 · 💡 提示 = 标出可消除方块</div>
       <div>⚡ 连续消除触发<b>连击</b>，分数翻倍！</div>
-      <div class="red">清空所有方块过关！只能从外往内消，考验空间规划 🔮</div>
+      <div class="red">清空所有方块过关！考验空间规划 🔮</div>
     </div>
     <div class="btn-row"><button class="btn primary" data-close="1">开始游戏</button></div>
   </div>
@@ -1417,6 +1418,28 @@ function genLevelUsable3(size,fill,blanks,seed,maxTries){
   return null;
 }
 
+/* 满填生成（100% 实心立方体，无空洞，像原版 8×8×8=512）：
+   波前插入 —— 按(翻转坐标和)升序逐格插入，箭头方向从"指向未插入区域"的三方向随机选，
+   逆序即消除顺序，必然可解。随机轴翻转让 6 个方向都有出现 */
+function genLevelFull(size,seed){
+  const rng=mulberry32(seed);
+  const board=makeBoard3(size);
+  const fl=[rng()<.5?1:-1,rng()<.5?1:-1,rng()<.5?1:-1];
+  const fx=i=>fl[0]>0?i:(size-1-i);
+  const list=[];
+  for(let x=0;x<size;x++)for(let y=0;y<size;y++)for(let z=0;z<size;z++)list.push({x,y,z,w:rng()});
+  list.sort((a,b)=>{
+    const sa=fx(a.x)+fx(a.y)+fx(a.z),sb=fx(b.x)+fx(b.y)+fx(b.z);
+    return sa!==sb?sa-sb:a.w-b.w;
+  });
+  const dirs=[fl[0]>0?0:1,fl[1]>0?2:3,fl[2]>0?4:5];   // 翻转坐标下的 +x/+y/+z → 原坐标方向
+  for(const {x,y,z} of list){
+    const cands=dirs.filter(d=>pathClear3(board,x,y,z,d,size));
+    board[x][y][z]={d:cands[(rng()*cands.length)|0]};
+  }
+  return board;
+}
+
 /* 刷新：贪心逆序重建箭头（保证可解，位置不变） */
 function rerollArrows3(board,size,seed){
   const rng=mulberry32(seed);
@@ -2116,17 +2139,13 @@ function starsHtml(n){let s='';for(let i=0;i<3;i++)s+=i<n?'★':'<span class="of
 function modeConf(mode,level){
   if(mode==='classic'){
     const size=Math.min(8,4+Math.floor((level-1)/3));
-    const fill=Math.min(.78,.5+.02*level);
-    const blanks=level>=2?8:0;         // 2×2×2 聚簇，1 颗炸弹(3×3×3)可全清
-    return{size,fill,blanks,bombs:2,swaps:1,refresh:1+Math.floor(level/5),hint:3};
+    return{size,fill:1,blanks:0,bombs:2,swaps:1,refresh:1+Math.floor(level/5),hint:3};
   }
   if(mode==='timed'){
-    return{size:6,fill:.6,blanks:8,bombs:2,swaps:1,refresh:1,hint:2};
+    return{size:6,fill:1,blanks:0,bombs:2,swaps:1,refresh:1,hint:2};
   }
   const size=Math.min(8,4+Math.floor((level-1)/2));
-  const fill=Math.min(.8,.52+.025*level);
-  const blanks=level>=2?8:0;
-  return{size,fill,blanks,bombs:2,swaps:1,refresh:1,hint:2};
+  return{size,fill:1,blanks:0,bombs:2,swaps:1,refresh:1,hint:2};
 }
 function startTimer(kind){
   G.timerId=setInterval(()=>{
@@ -2317,8 +2336,10 @@ function startLevel(level, customCode){
     if(G.mode==='custom')G.mode='classic';
     const cfg=modeConf(G.mode,level);
     G.size=cfg.size;
-    G.board=genLevelUsable3(G.size,cfg.fill,cfg.blanks,(Math.random()*1e9)|0,20);
-    if(!G.board){toast('关卡生成失败，重试…');G.board=genLevelUsable3(G.size,.45,0,(Math.random()*1e9)|0,40)}
+    G.board=cfg.fill>=1
+      ?genLevelFull(G.size,(Math.random()*1e9)|0)
+      :genLevelUsable3(G.size,cfg.fill,cfg.blanks,(Math.random()*1e9)|0,20);
+    if(!G.board){toast('关卡生成失败，重试…');G.board=genLevelFull(G.size,(Math.random()*1e9)|0)}
   }
   const total=countBlocks3(G.board,G.size),blanks=countBlanks3(G.board,G.size);
   G.pu=customCode?{refresh:2,swap:2,bomb:2,hint:3}:modeConf(G.mode,level);
@@ -2396,8 +2417,8 @@ function init(){
   // 关卡工坊
   $('layerSlider').addEventListener('input',e=>{E.layer=+e.target.value;renderEdit()});
   $('edRandom').addEventListener('click',()=>{
-    E.board=genLevel3(E.size,.65,0,(Math.random()*1e9)|0);
-    renderEdit();toast('已随机生成');
+    E.board=genLevelFull(E.size,(Math.random()*1e9)|0);
+    renderEdit();toast('已随机生成满填关卡');
   });
   $('edClear').addEventListener('click',()=>{E.board=makeBoard3(E.size);renderEdit();toast('已清空')});
   $('edPlay').addEventListener('click',playCustom);
